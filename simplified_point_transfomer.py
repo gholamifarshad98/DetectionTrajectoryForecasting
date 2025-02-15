@@ -10,30 +10,34 @@ import torch.nn.functional as F
 # Define the Point Transformer Layer
 class PointTransformerLayer(nn.Module):
     def __init__(self, in_planes, out_planes, nsample=16):
-        super(PointTransformerLayer, self).__init__()
+        super().__init__()
         self.nsample = nsample
         
-        # Linear layers for query, key, value, and position encoding
+        # Paper's φ, ψ, α projections
         self.linear_q = nn.Linear(in_planes, out_planes)
         self.linear_k = nn.Linear(in_planes, out_planes)
         self.linear_v = nn.Linear(in_planes, out_planes)
-        
-        # Position encoding
+
+        # Residual projection
+        self.residual_proj = nn.Linear(in_planes, out_planes) if in_planes != out_planes else nn.Identity()        
+
+
+        # Position encoding δ (paper's θ)
         self.linear_p = nn.Sequential(
-            nn.Linear(3, out_planes),  # Ensure output size matches the feature size
-            nn.BatchNorm1d(out_planes),  # Ensure BatchNorm1d is matching out_planes
-            nn.ReLU(inplace=True)
+            nn.Linear(3, out_planes),
+            nn.LayerNorm(out_planes),  # Paper uses LayerNorm
+            nn.ReLU()
         )
         
-        # MLP for attention weights
+        # Paper's γ (vector attention MLP)
         self.mlp_gamma = nn.Sequential(
             nn.Linear(out_planes, out_planes),
-            nn.BatchNorm1d(out_planes),  # Ensure BatchNorm1d is matching out_planes
-            nn.ReLU(inplace=True),
-            nn.Linear(out_planes, out_planes)
+            nn.LayerNorm(out_planes),
+            nn.ReLU(),
+            nn.Linear(out_planes, out_planes)  # Keep vector output!
         )
         
-        # Final linear layer
+        # Final projection
         self.linear_out = nn.Linear(out_planes, out_planes)
         
     def forward(self, points, features):
@@ -44,6 +48,8 @@ class PointTransformerLayer(nn.Module):
         Returns:
             transformed_features: (N, out_planes) tensor of transformed features
         """
+
+        residual = self.residual_proj(features)  # Project residual if needed
         N = points.shape[0]
         
         # Query, Key, Value transformations
@@ -74,25 +80,25 @@ class PointTransformerLayer(nn.Module):
         q_expanded = q.unsqueeze(1).expand(-1, self.nsample, -1)  # (N, nsample, out_planes)
 
         # Now q_expanded, grouped_k, and p can be added/subtracted
-        attention_input = q_expanded - grouped_k + p  # (N, nsample, out_planes)
+        # attention_input = q_expanded - grouped_k + p  # (N, nsample, out_planes)
 
-        # Reshape attention_input to (N * nsample, out_planes) for mlp_gamma
-        attention_input = attention_input.view(-1, self.linear_out.out_features)  # (N * nsample, out_planes)
-        attention_scores = self.mlp_gamma(attention_input)  # (N * nsample, out_planes)
-
-        # Reshape attention_scores back to (N, nsample, out_planes)
-        attention_scores = attention_scores.view(N, self.nsample, -1)  # (N, nsample, out_planes)
-
-        # Apply softmax to get attention weights
-        attention_scores = F.softmax(attention_scores, dim=1)  # (N, nsample, out_planes)
-
-        # Weighted sum of values
-        transformed_features = torch.sum((grouped_v + p) * attention_scores, dim=1)  # (N, out_planes)
+        # Compute γ(φ(x_i) - ψ(x_j) + δ)
+        attention_input = q_expanded - grouped_k + p  # (N, nsample, C)
+        attention_weights = self.mlp_gamma(attention_input)  # (N, nsample, C)
         
-        # Final transformation
-        transformed_features = self.linear_out(transformed_features)
+        # Paper uses softmax over neighbors
+        attention_weights = F.softmax(attention_weights, dim=1)
         
-        return transformed_features
+        # Element-wise multiplication (⊙) with (α(x_j) + δ)
+        transformed = (grouped_v + p) * attention_weights  # (N, nsample, C)
+        
+        # Sum aggregation
+        transformed = torch.sum(transformed, dim=1)  # (N, C)
+        
+        transformed = self.linear_out(transformed)
+        return transformed + residual  # Now dimension-matched
+
+        
 # Define the Point Transformer Network
 class PointTransformer(nn.Module):
     def __init__(self, in_planes, out_planes, num_layers=4, nsample=16):
@@ -144,13 +150,17 @@ if __name__ == "__main__":
     # points = torch.tensor(pc.points.T, dtype=torch.float32)  # (N, 3)
     points = torch.tensor(pc.points[:3, :].T, dtype=torch.float32)  # Only use the first 3 dimensions (x, y, z)
 
+    points = points[0:18, :]  # This extracts just the first point cloud sample (first set of x, y, z)
+
 
     # Normalize point coordinates (optional)
     points -= points.mean(dim=0)  # Center the point cloud
     points /= points.std(dim=0)   # Normalize scale
 
     # Create dummy features (if no features are available)
-    features = torch.ones_like(points[:, :3])  # (N, 3)
+    # features = torch.ones_like(points[:, :3])  # (N, 3)
+    features = torch.ones_like(points[:, :3])  # (1, 3) feature for the first point
+
 
     # Initialize the Point Transformer
     model = PointTransformer(in_planes=3, out_planes=64, num_layers=4, nsample=16)
