@@ -6,7 +6,22 @@ from scipy.optimize import linear_sum_assignment
 from nuscenes.nuscenes import NuScenes
 from nuscenes.utils.data_classes import LidarPointCloud
 import math
+from typing import Optional
+from torch import Tensor
+# Add this import at the top of three_detr2.py
+from third_party.pointnet2.pointnet2_modules import PointnetSAModuleVotes
 
+# Add the build_preencoder function
+def build_preenocder(preenc_npoints=1024, enc_dim=256):
+    mlp_dims = [3, 64, 128, enc_dim]  # Assumes only XYZ input (no color)
+    preencoder = PointnetSAModuleVotes(
+        radius=0.2,
+        nsample=64,
+        npoint=preenc_npoints,
+        mlp=mlp_dims,
+        normalize_xyz=True,
+    )
+    return preencoder
 # Key Additions for Better Performance
 class PositionEmbeddingCoordsSine(nn.Module):
     def __init__(self, d_pos=256):
@@ -78,43 +93,49 @@ class FPSDownsample(nn.Module):
 # ----------------------
 # 2. Transformer Architecture
 # ----------------------
-class CustomTransformerDecoder(nn.TransformerDecoder):
-    def forward(self, tgt, memory, pos=None):
-        output = tgt
-        for mod in self.layers:
-            output = mod(output, memory, pos=pos)
-        return output
-
+# ----------------------
+# 2. Transformer Architecture (MODIFIED)
+# ----------------------
 class CustomDecoderLayer(nn.TransformerDecoderLayer):
-    def forward(self, tgt, memory, pos=None):
-        # Add positional embedding to encoder outputs
-        if pos is not None:
-            memory = memory + pos  # Shape: (B, N_enc, hidden_dim)
-        
-        # Self attention
+    def with_pos_embed(self, tensor, pos: Optional[Tensor]):
+        return tensor if pos is None else tensor + pos
+    
+    def forward(self, tgt, memory, query_pos=None, mem_pos=None):  # CHANGED
+        # Self attention with query pos
+        q = k = self.with_pos_embed(tgt, query_pos)  # ADDED POS
         tgt2 = self.self_attn(
-            tgt, tgt, tgt,
+            q, k, value=tgt,  # USE POS-ENHANCED Q/K
             attn_mask=None,
             key_padding_mask=None
         )[0]
         tgt = tgt + self.dropout1(tgt2)
         tgt = self.norm1(tgt)
 
-        # Cross attention with position-augmented memory
+        # Cross attention with POS-AWARE keys
         tgt2 = self.multihead_attn(
-            query=tgt,
-            key=memory,
-            value=memory,
+            query=self.with_pos_embed(tgt, query_pos),  # QUERY POS
+            key=self.with_pos_embed(memory, mem_pos),    # MEMORY POS
+            value=memory,                                # RAW FEATURES
             key_padding_mask=None
         )[0]
         tgt = tgt + self.dropout2(tgt2)
         tgt = self.norm2(tgt)
 
-        # FFN
+        # FFN (unchanged)
         tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
         tgt = tgt + self.dropout3(tgt2)
         tgt = self.norm3(tgt)
         return tgt
+
+class CustomTransformerDecoder(nn.TransformerDecoder):
+    def forward(self, tgt, memory, query_pos=None, mem_pos=None):  # CHANGED
+        output = tgt
+        for mod in self.layers:
+            # Pass both query and memory positions
+            output = mod(output, memory, query_pos=query_pos, mem_pos=mem_pos)  # CHANGED
+        return output
+
+
 
 class Enhanced3DETR(nn.Module):
     def __init__(self, num_classes, hidden_dim=256, num_queries=100):
@@ -148,6 +169,8 @@ class Enhanced3DETR(nn.Module):
         # Add encoder positional embedding
         self.enc_pos_embed = PositionEmbeddingCoordsSine(d_pos=hidden_dim)
         
+
+        self.preencoder = build_preenocder()
         # 5. Prediction heads with angle binning
         self.class_head = nn.Linear(hidden_dim, num_classes + 1)  # +1 for background
         self.center_head = nn.Sequential(nn.Linear(hidden_dim, 3), nn.Sigmoid())
@@ -157,7 +180,9 @@ class Enhanced3DETR(nn.Module):
 
     def forward(self, x):
         # 1. Get features and positions
+        
         points, features = self.backbone(x)
+        pre_enc_xyz, pre_enc_features, pre_enc_inds = self.preencoder(points , features)
         B = x.shape[0]
         
         # 2. Encoder processing
@@ -178,11 +203,12 @@ class Enhanced3DETR(nn.Module):
         query_pos = self.query_pos(query_xyz, input_range)
         query_embed = self.query_proj(query_pos)
         
-        # Decoder with proper cross-attention
+        # Decoder call with BOTH positions
         decoded = self.decoder(
             tgt=query_embed,
             memory=encoded,
-            pos=enc_pos  # Pass encoder positions to decoder
+            query_pos=query_pos,  # PASS QUERY POS
+            mem_pos=enc_pos       # PASS MEMORY POS
         )
         
         
@@ -462,10 +488,10 @@ optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
 criterion = detection_loss  # Now using the proper detection loss
 
 # Dataset setup
-nusc = NuScenes(version='v1.0-mini', dataroot='/home/sohail/AI/v1.0-mini/nuscenes', verbose=False)
+nusc = NuScenes(version='v1.0-mini', dataroot='/home/farshad/Desktop/AI/OpenPCDet/data/nuscenes/v1.0-mini', verbose=False)
 
 # Training
-for epoch in range(10):
+for epoch in range(500):
     for i, sample in enumerate(nusc.sample):
         sample_token = sample['token']
         
@@ -494,3 +520,5 @@ for epoch in range(10):
         optimizer.step()
         
         print(f'Epoch {epoch+1} Sample {i+1}/{len(nusc.sample)} Loss: {loss.item():.4f}')
+    torch.save(model.state_dict(), f'3detr_epoch_{epoch}.pth')
+torch.save(model.state_dict(), '3detr_final.pth')
