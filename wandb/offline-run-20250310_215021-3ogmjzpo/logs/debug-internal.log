@@ -1,0 +1,14 @@
+{"time":"2025-03-10T21:50:21.370313777+03:30","level":"INFO","msg":"stream: starting","core version":"0.19.8","symlink path":"/home/farshad/Desktop/AI/3Detr/mar10/wandb/offline-run-20250310_215021-3ogmjzpo/logs/debug-core.log"}
+{"time":"2025-03-10T21:50:21.473617311+03:30","level":"INFO","msg":"created new stream","id":"3ogmjzpo"}
+{"time":"2025-03-10T21:50:21.47363586+03:30","level":"INFO","msg":"stream: started","id":"3ogmjzpo"}
+{"time":"2025-03-10T21:50:21.473645905+03:30","level":"INFO","msg":"writer: Do: started","stream_id":"3ogmjzpo"}
+{"time":"2025-03-10T21:50:21.473646015+03:30","level":"INFO","msg":"handler: started","stream_id":"3ogmjzpo"}
+{"time":"2025-03-10T21:50:21.473677811+03:30","level":"INFO","msg":"sender: started","stream_id":"3ogmjzpo"}
+{"time":"2025-03-10T21:50:21.475388805+03:30","level":"INFO","msg":"Starting system monitor"}
+{"time":"2025-03-10T21:50:28.484128893+03:30","level":"INFO","msg":"stream: closing","id":"3ogmjzpo"}
+{"time":"2025-03-10T21:50:28.484150657+03:30","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2025-03-10T21:50:28.484560919+03:30","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2025-03-10T21:50:28.4847192+03:30","level":"INFO","msg":"handler: closed","stream_id":"3ogmjzpo"}
+{"time":"2025-03-10T21:50:28.484729656+03:30","level":"INFO","msg":"writer: Close: closed","stream_id":"3ogmjzpo"}
+{"time":"2025-03-10T21:50:28.484740671+03:30","level":"INFO","msg":"sender: closed","stream_id":"3ogmjzpo"}
+{"time":"2025-03-10T21:50:28.484767783+03:30","level":"INFO","msg":"stream: closed","id":"3ogmjzpo"}

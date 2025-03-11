@@ -1,0 +1,10 @@
+# ninja log v5
+0	12227	1740768061062206903	/home/farshad/Desktop/AI/3Detr/3detr/third_party/pointnet2/build/temp.linux-x86_64-3.10/_ext_src/src/ball_query.o	d533ddcf35d0a633
+1	12277	1740768061114207466	/home/farshad/Desktop/AI/3Detr/3detr/third_party/pointnet2/build/temp.linux-x86_64-3.10/_ext_src/src/interpolate.o	a31ac0e8c427fab9
+0	12878	1740768061715213965	/home/farshad/Desktop/AI/3Detr/3detr/third_party/pointnet2/build/temp.linux-x86_64-3.10/_ext_src/src/bindings.o	ac9de9bc19ae527f
+0	13498	1740768062336220680	/home/farshad/Desktop/AI/3Detr/3detr/third_party/pointnet2/build/temp.linux-x86_64-3.10/_ext_src/src/group_points.o	e9d9ac059774c0ed
+1	13646	1740768062482222259	/home/farshad/Desktop/AI/3Detr/3detr/third_party/pointnet2/build/temp.linux-x86_64-3.10/_ext_src/src/interpolate_gpu.o	a06cd67fb08ea75e
+0	13667	1740768062502222476	/home/farshad/Desktop/AI/3Detr/3detr/third_party/pointnet2/build/temp.linux-x86_64-3.10/_ext_src/src/ball_query_gpu.o	8ca67cd94de8dc6c
+1	14140	1740768062973227569	/home/farshad/Desktop/AI/3Detr/3detr/third_party/pointnet2/build/temp.linux-x86_64-3.10/_ext_src/src/sampling_gpu.o	785d48734d52579f
+1	15833	1740768064671245936	/home/farshad/Desktop/AI/3Detr/3detr/third_party/pointnet2/build/temp.linux-x86_64-3.10/_ext_src/src/sampling.o	2644e8606bc1aa0c
+0	16602	1740768065439254245	/home/farshad/Desktop/AI/3Detr/3detr/third_party/pointnet2/build/temp.linux-x86_64-3.10/_ext_src/src/group_points_gpu.o	594d9b6c69a5bfcd
