@@ -1,0 +1,7 @@
+{"time":"2025-03-13T21:32:51.071506016+03:30","level":"INFO","msg":"stream: starting","core version":"0.19.8","symlink path":"/home/farshad/Desktop/AI/3Detr/mar10/wandb/offline-run-20250313_213251-unr0mx9g/logs/debug-core.log"}
+{"time":"2025-03-13T21:32:51.178047827+03:30","level":"INFO","msg":"created new stream","id":"unr0mx9g"}
+{"time":"2025-03-13T21:32:51.178064329+03:30","level":"INFO","msg":"stream: started","id":"unr0mx9g"}
+{"time":"2025-03-13T21:32:51.178116224+03:30","level":"INFO","msg":"writer: Do: started","stream_id":"unr0mx9g"}
+{"time":"2025-03-13T21:32:51.178116681+03:30","level":"INFO","msg":"handler: started","stream_id":"unr0mx9g"}
+{"time":"2025-03-13T21:32:51.178128131+03:30","level":"INFO","msg":"sender: started","stream_id":"unr0mx9g"}
+{"time":"2025-03-13T21:32:51.181104117+03:30","level":"INFO","msg":"Starting system monitor"}

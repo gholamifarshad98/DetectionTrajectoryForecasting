@@ -1,0 +1,69 @@
+# Python-specific ignores
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Log files
+*.log
+*.log.*
+logs/
+log/
+
+# WandB files
+wandb/
+.wandb/
+
+# Virtual environment
+venv/
+env/
+ENV/
+.env/
+.venv/
+
+# IDE-specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Testing and coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# macOS
+.DS_Store
+
+# Environment variables
+.env
+.env.local
+.env.development
+.env.production
+
+# Misc
+*.bak
+*.tmp
+*.temp
+*.sqlite3

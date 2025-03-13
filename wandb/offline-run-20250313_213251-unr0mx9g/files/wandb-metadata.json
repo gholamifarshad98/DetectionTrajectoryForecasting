@@ -1,0 +1,41 @@
+{
+  "os": "Linux-6.11.0-19-generic-x86_64-with-glibc2.39",
+  "python": "CPython 3.10.16",
+  "startedAt": "2025-03-13T18:02:51.063735Z",
+  "program": "/home/farshad/Desktop/AI/3Detr/mar10/main2.py",
+  "codePath": "main2.py",
+  "git": {
+    "remote": "https://github.com/gholamifarshad98/DetectionTrajectoryForecasting",
+    "commit": "bfd0b1d8d74b8a879b1687651d58b43fdaebeb6b"
+  },
+  "root": "/home/farshad/Desktop/AI/3Detr/mar10",
+  "host": "farshad-ROG-Strix-G614JV-G614JV",
+  "executable": "/home/farshad/miniconda3/envs/AI/bin/python",
+  "codePathLocal": "main2.py",
+  "cpu_count": 14,
+  "cpu_count_logical": 20,
+  "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+  "gpu_count": 1,
+  "disk": {
+    "/": {
+      "total": "260861198336",
+      "used": "171364851712"
+    }
+  },
+  "memory": {
+    "total": "16366637056"
+  },
+  "cpu": {
+    "count": 14,
+    "countLogical": 20
+  },
+  "gpu_nvidia": [
+    {
+      "name": "NVIDIA GeForce RTX 4060 Laptop GPU",
+      "memoryTotal": "8585740288",
+      "cudaCores": 3072,
+      "architecture": "Ada"
+    }
+  ],
+  "cudaVersion": "12.4"
+}

@@ -13,26 +13,6 @@ from third_party.pointnet2.pointnet2_modules import PointnetSAModuleVotes
 from third_party.pointnet2.pointnet2_utils import furthest_point_sample
 
 
-
-
-from engine import evaluate, train_one_epoch
-from optimizer import build_optimizer
-from criterion import build_criterion
-from torch.utils.data import DataLoader, Dataset
-from nuscenes.utils.geometry_utils import view_points
-from pyquaternion import Quaternion
-import multiprocessing
-
-
-'''
-RuntimeError: one of the variables needed for gradient computation has been modified by an inplace operation: [torch.cuda.FloatTensor [256, 1, 512]], which is output 0 of ReluBackward0, is at version 1; expected version 0 instead. Hint: enable anomaly detection to find the operation that failed to compute its gradient, with torch.autograd.set_detect_anomaly(True).
-The error you're encountering is related to an inplace operation modifying a tensor that is needed for gradient computation. Specifically, the error message indicates that a tensor involved in the backward pass has been modified inplace, which breaks the computation graph and prevents PyTorch from correctly computing gradients.
-'''
-import torch.autograd
-# Enable anomaly detection
-torch.autograd.set_detect_anomaly(True)
-
-
 # Add the build_preencoder function
 def build_preenocder(preenc_npoints=1024, enc_dim=256):
     mlp_dims = [0, 64, 128, enc_dim]  # Assumes only XYZ input (no color)
@@ -361,6 +341,7 @@ ACTIVATION_DICT = {
     "leakyrelu": partial(nn.LeakyReLU, negative_slope=0.1),
 }
 class TransformerEncoderLayer(nn.Module):
+
     def __init__(self, d_model, nhead=4, dim_feedforward=128,
                  dropout=0.1, dropout_attn=None,
                  activation="relu", normalize_before=True, norm_name="ln",
@@ -372,14 +353,17 @@ class TransformerEncoderLayer(nn.Module):
         self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout_attn)
         self.use_ffn = use_ffn
         if self.use_ffn:
+            # Implementation of Feedforward model
             self.linear1 = nn.Linear(d_model, dim_feedforward, bias=ffn_use_bias)
-            self.dropout = nn.Dropout(dropout, inplace=False)  # Changed to inplace=False
+            self.dropout = nn.Dropout(dropout, inplace=True)
             self.linear2 = nn.Linear(dim_feedforward, d_model, bias=ffn_use_bias)
             self.norm2 = NORM_DICT[norm_name](d_model)
-            self.dropout2 = nn.Dropout(dropout, inplace=False)  # Changed to inplace=False
+            self.norm2 = NORM_DICT[norm_name](d_model)
+            self.dropout2 = nn.Dropout(dropout, inplace=True)
 
         self.norm1 = NORM_DICT[norm_name](d_model)
-        self.dropout1 = nn.Dropout(dropout, inplace=False)  # Changed to inplace=False
+        self.dropout1 = nn.Dropout(dropout, inplace=True)
+
         self.activation = ACTIVATION_DICT[activation]()
         self.normalize_before = normalize_before
         self.nhead = nhead
@@ -499,78 +483,26 @@ class BoxProcessor(object):
         objectness_prob = 1 - cls_prob[..., -1]
         return cls_prob[..., :-1], objectness_prob
 
-    # def box_parametrization_to_corners(
-    #     self, box_center_unnorm, box_size_unnorm, box_angle
-    # ):
-    #     """
-    #     Convert box parameters (center, size, angle) into box corners.
-    #     This is a placeholder implementation. Replace it with your actual logic.
-    #     """
-    #     # Placeholder implementation: Replace with your actual logic
-    #     # For example, you can use a predefined function or formula to compute corners.
-    #     # Here, we return a dummy tensor of shape (8, 3) for demonstration purposes.
-    #     return torch.tensor([
-    #         [0, 0, 0],
-    #         [1, 0, 0],
-    #         [0, 1, 0],
-    #         [0, 0, 1],
-    #         [1, 1, 0],
-    #         [1, 0, 1],
-    #         [0, 1, 1],
-    #         [1, 1, 1],
-    #     ], dtype=torch.float32)
-
-
-    def box_parametrization_to_corners(self, box_center_unnorm, box_size_unnorm, box_angle):
+    def box_parametrization_to_corners(
+        self, box_center_unnorm, box_size_unnorm, box_angle
+    ):
         """
         Convert box parameters (center, size, angle) into box corners.
-        
-        Args:
-            box_center_unnorm: Tensor of shape (B, K1, 3) containing the unnormalized box centers.
-            box_size_unnorm: Tensor of shape (B, K1, 3) containing the unnormalized box sizes.
-            box_angle: Tensor of shape (B, K1) containing the box angles.
-        
-        Returns:
-            Tensor of shape (B, K1, 8, 3) containing the 3D corners of the boxes.
+        This is a placeholder implementation. Replace it with your actual logic.
         """
-        B, K1 = box_center_unnorm.shape[:2]
-        
-        # Define the 8 corners of a unit cube
-        unit_corners = torch.tensor([
-            [0.5, 0.5, 0.5],
-            [0.5, 0.5, -0.5],
-            [0.5, -0.5, 0.5],
-            [0.5, -0.5, -0.5],
-            [-0.5, 0.5, 0.5],
-            [-0.5, 0.5, -0.5],
-            [-0.5, -0.5, 0.5],
-            [-0.5, -0.5, -0.5],
-        ], dtype=torch.float32, device=box_center_unnorm.device)  # Shape: (8, 3)
-        
-        # Scale the unit cube by the box size
-        box_size_unnorm = box_size_unnorm.unsqueeze(2)  # Shape: (B, K1, 1, 3)
-        scaled_corners = unit_corners * box_size_unnorm  # Shape: (B, K1, 8, 3)
-        
-        # Rotate the corners by the box angle
-        cos_angle = torch.cos(box_angle).unsqueeze(-1).unsqueeze(-1)  # Shape: (B, K1, 1, 1)
-        sin_angle = torch.sin(box_angle).unsqueeze(-1).unsqueeze(-1)  # Shape: (B, K1, 1, 1)
-        
-        # Rotation matrix around the Z-axis
-        rotation_matrix = torch.cat([
-            torch.cat([cos_angle, -sin_angle, torch.zeros_like(cos_angle)], dim=-1),
-            torch.cat([sin_angle, cos_angle, torch.zeros_like(cos_angle)], dim=-1),
-            torch.cat([torch.zeros_like(cos_angle), torch.zeros_like(cos_angle), torch.ones_like(cos_angle)], dim=-1),
-        ], dim=-2)  # Shape: (B, K1, 3, 3)
-        
-        # Apply rotation to the corners
-        rotated_corners = torch.matmul(scaled_corners, rotation_matrix)  # Shape: (B, K1, 8, 3)
-        
-        # Translate the corners to the box center
-        box_center_unnorm = box_center_unnorm.unsqueeze(2)  # Shape: (B, K1, 1, 3)
-        box_corners = rotated_corners + box_center_unnorm  # Shape: (B, K1, 8, 3)
-        
-        return box_corners
-
+        # Placeholder implementation: Replace with your actual logic
+        # For example, you can use a predefined function or formula to compute corners.
+        # Here, we return a dummy tensor of shape (8, 3) for demonstration purposes.
+        return torch.tensor([
+            [0, 0, 0],
+            [1, 0, 0],
+            [0, 1, 0],
+            [0, 0, 1],
+            [1, 1, 0],
+            [1, 0, 1],
+            [0, 1, 1],
+            [1, 1, 1],
+        ], dtype=torch.float32)
 
 
 class TransformerEncoder(nn.Module):
@@ -701,7 +633,10 @@ class GenericMLP(nn.Module):
         output = self.layers(x)
         return output
 
+
+
 class TransformerDecoderLayer(nn.Module):
+
     def __init__(self, d_model, nhead=4, dim_feedforward=256,
                  dropout=0.1, dropout_attn=None,
                  activation="relu", normalize_before=True,
@@ -714,21 +649,18 @@ class TransformerDecoderLayer(nn.Module):
 
         self.norm1 = NORM_DICT[norm_fn_name](d_model)
         self.norm2 = NORM_DICT[norm_fn_name](d_model)
+
         self.norm3 = NORM_DICT[norm_fn_name](d_model)
-        
-        # Disable inplace for all Dropout layers
-        self.dropout1 = nn.Dropout(dropout, inplace=False)
-        self.dropout2 = nn.Dropout(dropout, inplace=False)
-        self.dropout3 = nn.Dropout(dropout, inplace=False)
+        self.dropout1 = nn.Dropout(dropout, inplace=True)
+        self.dropout2 = nn.Dropout(dropout, inplace=True)
+        self.dropout3 = nn.Dropout(dropout, inplace=True)
 
         # Implementation of Feedforward model
         self.linear1 = nn.Linear(d_model, dim_feedforward)
-        self.dropout = nn.Dropout(dropout, inplace=False)  # Disable inplace
-        
-        # Explicitly set inplace=False for ReLU
-        self.activation = ACTIVATION_DICT[activation](inplace=False)  # Fix here
+        self.dropout = nn.Dropout(dropout, inplace=True)
         self.linear2 = nn.Linear(dim_feedforward, d_model)
 
+        self.activation = ACTIVATION_DICT[activation]()
         self.normalize_before = normalize_before
 
     def with_pos_embed(self, tensor, pos: Optional[Tensor]):
@@ -1003,7 +935,7 @@ class Enhanced3DETR(nn.Module):
     def forward(self, x):
         # 1. Get features and positions
         
-        points = x['point_clouds']
+        points = x
         xyz = points[..., 0:3].contiguous()
         features = points[..., 3:].transpose(1, 2).contiguous() if points.size(-1) > 3 else None
         pre_enc_xyz, pre_enc_features, pre_enc_inds = self.preencoder(xyz)
@@ -1067,10 +999,6 @@ class Enhanced3DETR(nn.Module):
         box_predictions = self.get_box_predictions(
             query_xyz, point_cloud_dims, box_features
         )
-
-
-
-        
         return box_predictions
         # return outputs
 
@@ -1139,8 +1067,8 @@ class Enhanced3DETR(nn.Module):
         Parameters:
             query_xyz: batch x nqueries x 3 tensor of query XYZ coords
             point_cloud_dims: List of [min, max] dims of point cloud
-                            min: batch x 3 tensor of min XYZ coords
-                            max: batch x 3 tensor of max XYZ coords
+                              min: batch x 3 tensor of min XYZ coords
+                              max: batch x 3 tensor of max XYZ coords
             box_features: num_layers x num_queries x batch x channel
         """
         # box_features change to (num_layers x batch) x channel x num_queries
@@ -1197,12 +1125,6 @@ class Enhanced3DETR(nn.Module):
                 center_unnormalized, size_unnormalized, angle_continuous
             )
 
-            # Ensure box_corners has the correct shape (B, K1, 8, 3)
-            if len(box_corners.shape) == 3:  # Shape: (K1, 8, 3)
-                box_corners = box_corners.unsqueeze(0)  # Add batch dimension: (1, K1, 8, 3)
-            assert len(box_corners.shape) == 4 and box_corners.shape[2] == 8 and box_corners.shape[3] == 3, \
-                f"box_corners has incorrect shape: {box_corners.shape}"
-
             # below are not used in computing loss (only for matching/mAP eval)
             # we compute them with no_grad() so that distributed training does not complain about unused variables
             with torch.no_grad():
@@ -1223,7 +1145,7 @@ class Enhanced3DETR(nn.Module):
                 "angle_continuous": angle_continuous,
                 "objectness_prob": objectness_prob,
                 "sem_cls_prob": semcls_prob,
-                "box_corners": box_corners,  # Shape: (B, K1, 8, 3)
+                "box_corners": box_corners,
             }
             outputs.append(box_prediction)
 
@@ -1334,46 +1256,6 @@ def load_lidar_data(nusc, sample_token, max_points=35000):
     return points.unsqueeze(0)  # Add batch dimension
 
 
-# def prepare_ground_truth(nusc, sample_token, class_map, num_angle_bins=12):
-#     sample = nusc.get('sample', sample_token)
-#     anns = [nusc.get('sample_annotation', token) for token in sample['anns']]
-    
-#     # Initialize lists for batch=1
-#     labels = []
-#     centers = []
-#     sizes = []
-#     angle_bins = []
-#     angle_res = []
-    
-#     for ann in anns:
-#         if ann['category_name'] not in class_map:
-#             continue
-            
-#         # Box parameters
-#         center = torch.tensor(ann['translation'], dtype=torch.float32)
-#         size = torch.tensor(ann['size'], dtype=torch.float32)
-#         yaw = torch.tensor(ann['rotation'][-1])  # Assuming yaw rotation
-        
-#         # Angle binning
-#         angle_bin_size = 2 * np.pi / num_angle_bins
-#         angle_norm = yaw % (2 * np.pi)
-#         bin_idx = int(angle_norm / angle_bin_size)
-#         residual = angle_norm - (bin_idx * angle_bin_size + angle_bin_size/2)
-        
-#         labels.append(class_map[ann['category_name']])
-#         centers.append(center)
-#         sizes.append(size)
-#         angle_bins.append(bin_idx)
-#         angle_res.append(residual)
-    
-#     # Return as lists to handle variable numbers of objects
-#     return {
-#         'labels': [torch.tensor(labels, dtype=torch.long)],
-#         'centers': [torch.stack(centers) if centers else torch.empty(0, 3)],
-#         'sizes': [torch.stack(sizes) if sizes else torch.empty(0, 3)],
-#         'angle_bins': [torch.tensor(angle_bins, dtype=torch.long)],
-#         'angle_res': [torch.tensor(angle_res, dtype=torch.float32)]
-#     }
 def prepare_ground_truth(nusc, sample_token, class_map, num_angle_bins=12):
     sample = nusc.get('sample', sample_token)
     anns = [nusc.get('sample_annotation', token) for token in sample['anns']]
@@ -1384,9 +1266,7 @@ def prepare_ground_truth(nusc, sample_token, class_map, num_angle_bins=12):
     sizes = []
     angle_bins = []
     angle_res = []
-    box_corners = []
-    box_angles = []
-
+    
     for ann in anns:
         if ann['category_name'] not in class_map:
             continue
@@ -1394,81 +1274,30 @@ def prepare_ground_truth(nusc, sample_token, class_map, num_angle_bins=12):
         # Box parameters
         center = torch.tensor(ann['translation'], dtype=torch.float32)
         size = torch.tensor(ann['size'], dtype=torch.float32)
-        yaw = Quaternion(ann['rotation']).yaw_pitch_roll[0]  # Extract yaw angle
-
+        yaw = torch.tensor(ann['rotation'][-1])  # Assuming yaw rotation
+        
         # Angle binning
         angle_bin_size = 2 * np.pi / num_angle_bins
         angle_norm = yaw % (2 * np.pi)
         bin_idx = int(angle_norm / angle_bin_size)
         residual = angle_norm - (bin_idx * angle_bin_size + angle_bin_size/2)
         
-        # Compute box corners
-        rotation = Quaternion(ann['rotation'])
-        corners = np.array([
-            [size[0] / 2, size[1] / 2, size[2] / 2],
-            [size[0] / 2, size[1] / 2, -size[2] / 2],
-            [size[0] / 2, -size[1] / 2, size[2] / 2],
-            [size[0] / 2, -size[1] / 2, -size[2] / 2],
-            [-size[0] / 2, size[1] / 2, size[2] / 2],
-            [-size[0] / 2, size[1] / 2, -size[2] / 2],
-            [-size[0] / 2, -size[1] / 2, size[2] / 2],
-            [-size[0] / 2, -size[1] / 2, -size[2] / 2],
-        ])
-        
-        # Rotate each corner individually
-        rotated_corners = np.array([rotation.rotate(corner) for corner in corners])
-        rotated_corners += center.numpy()  # Translate to the box center
-        rotated_corners = torch.tensor(rotated_corners, dtype=torch.float32)
-
         labels.append(class_map[ann['category_name']])
         centers.append(center)
         sizes.append(size)
         angle_bins.append(bin_idx)
         angle_res.append(residual)
-        box_corners.append(rotated_corners)
-        box_angles.append(yaw)
     
-    # Convert lists to tensors
-    labels = torch.tensor(labels, dtype=torch.long) if labels else torch.empty(0, dtype=torch.long)
-    centers = torch.stack(centers) if centers else torch.empty(0, 3)
-    sizes = torch.stack(sizes) if sizes else torch.empty(0, 3)
-    angle_bins = torch.tensor(angle_bins, dtype=torch.long) if angle_bins else torch.empty(0, dtype=torch.long)
-    angle_res = torch.tensor(angle_res, dtype=torch.float32) if angle_res else torch.empty(0, dtype=torch.float32)
-    box_corners = torch.stack(box_corners) if box_corners else torch.empty(0, 8, 3)
-    box_angles = torch.tensor(box_angles, dtype=torch.float32) if box_angles else torch.empty(0, dtype=torch.float32)
-
-    # Compute point cloud dimensions
-    lidar_data = load_lidar_data(nusc, sample_token)
-    point_cloud_dims_min = lidar_data.min(dim=1)[0]  # Shape: (1, 3)
-    point_cloud_dims_max = lidar_data.max(dim=1)[0]  # Shape: (1, 3)
-
-    # Normalize centers and sizes
-    centers_normalized = (centers - point_cloud_dims_min) / (point_cloud_dims_max - point_cloud_dims_min)
-    sizes_normalized = sizes / (point_cloud_dims_max - point_cloud_dims_min)
-
-    # Add "gt_box_present" key
-    gt_box_present = torch.ones(1, dtype=torch.float32)  # Assuming one box per sample
-
-    # Add "gt_box_sem_cls_label" key
-    gt_box_sem_cls_label = labels  # Use the labels tensor directly
-    
+    # Return as lists to handle variable numbers of objects
     return {
-        'labels': labels,
-        'centers': centers,
-        'sizes': sizes,
-        'angle_bins': angle_bins,
-        'angle_res': angle_res,
-        'point_cloud_dims_min': point_cloud_dims_min,
-        'point_cloud_dims_max': point_cloud_dims_max,
-        'gt_box_present': gt_box_present,
-        'gt_box_corners': box_corners,
-        'gt_box_centers_normalized': centers_normalized,
-        'gt_box_sizes_normalized': sizes_normalized,
-        'gt_angle_class_label': angle_bins,
-        'gt_angle_residual_label': angle_res,
-        'gt_box_angles': box_angles,
-        'gt_box_sem_cls_label': gt_box_sem_cls_label,  # Add this key
+        'labels': [torch.tensor(labels, dtype=torch.long)],
+        'centers': [torch.stack(centers) if centers else torch.empty(0, 3)],
+        'sizes': [torch.stack(sizes) if sizes else torch.empty(0, 3)],
+        'angle_bins': [torch.tensor(angle_bins, dtype=torch.long)],
+        'angle_res': [torch.tensor(angle_res, dtype=torch.float32)]
     }
+
+
 
 
 def detection_loss(outputs, targets):
@@ -1546,157 +1375,13 @@ def detection_loss(outputs, targets):
         )
         
     return total_loss / batch_size
-
-
-
-#######################################
-
-import argparse
-
-
-def make_args_parser():
-    parser = argparse.ArgumentParser("3D Detection Using Transformers", add_help=False)
-
-    ##soheil!
-    parser.add_argument("--batch_size", type=int, default=1, help="Batch size for training")
-    parser.add_argument("--num_workers", type=int, default=1, help="number of workers")
-
-
-    ##### Optimizer #####
-    parser.add_argument("--base_lr", default=5e-4, type=float)
-    parser.add_argument("--warm_lr", default=1e-6, type=float)
-    parser.add_argument("--warm_lr_epochs", default=9, type=int)
-    parser.add_argument("--final_lr", default=1e-6, type=float)
-    parser.add_argument("--lr_scheduler", default="cosine", type=str)
-    parser.add_argument("--weight_decay", default=0.1, type=float)
-    parser.add_argument("--filter_biases_wd", default=False, action="store_true")
-    parser.add_argument(
-        "--clip_gradient", default=0.1, type=float, help="Max L2 norm of the gradient"
-    )
-
-    ##### Model #####
-    parser.add_argument(
-        "--model_name",
-        default="3detr",
-        type=str,
-        help="Name of the model",
-        choices=["3detr"],
-    )
-    ### Encoder
-    parser.add_argument(
-        "--enc_type", default="vanilla", choices=["masked", "maskedv2", "vanilla"]
-    )
-    # Below options are only valid for vanilla encoder
-    parser.add_argument("--enc_nlayers", default=3, type=int)
-    parser.add_argument("--enc_dim", default=256, type=int)
-    parser.add_argument("--enc_ffn_dim", default=128, type=int)
-    parser.add_argument("--enc_dropout", default=0.1, type=float)
-    parser.add_argument("--enc_nhead", default=4, type=int)
-    parser.add_argument("--enc_pos_embed", default=None, type=str)
-    parser.add_argument("--enc_activation", default="relu", type=str)
-
-    ### Decoder
-    parser.add_argument("--dec_nlayers", default=8, type=int)
-    parser.add_argument("--dec_dim", default=256, type=int)
-    parser.add_argument("--dec_ffn_dim", default=256, type=int)
-    parser.add_argument("--dec_dropout", default=0.1, type=float)
-    parser.add_argument("--dec_nhead", default=4, type=int)
-
-    ### MLP heads for predicting bounding boxes
-    parser.add_argument("--mlp_dropout", default=0.3, type=float)
-    parser.add_argument(
-        "--nsemcls",
-        default=-1,
-        type=int,
-        help="Number of semantic object classes. Can be inferred from dataset",
-    )
-
-    ### Other model params
-    parser.add_argument("--preenc_npoints", default=2048, type=int)
-    parser.add_argument(
-        "--pos_embed", default="fourier", type=str, choices=["fourier", "sine"]
-    )
-    parser.add_argument("--nqueries", default=256, type=int)
-    parser.add_argument("--use_color", default=False, action="store_true")
-
-    ##### Set Loss #####
-    ### Matcher
-    parser.add_argument("--matcher_giou_cost", default=2, type=float)
-    parser.add_argument("--matcher_cls_cost", default=1, type=float)
-    parser.add_argument("--matcher_center_cost", default=0, type=float)
-    parser.add_argument("--matcher_objectness_cost", default=0, type=float)
-
-    ### Loss Weights
-    parser.add_argument("--loss_giou_weight", default=0, type=float)
-    parser.add_argument("--loss_sem_cls_weight", default=1, type=float)
-    parser.add_argument(
-        "--loss_no_object_weight", default=0.2, type=float
-    )  # "no object" or "background" class for detection
-    parser.add_argument("--loss_angle_cls_weight", default=0.1, type=float)
-    parser.add_argument("--loss_angle_reg_weight", default=0.5, type=float)
-    parser.add_argument("--loss_center_weight", default=5.0, type=float)
-    parser.add_argument("--loss_size_weight", default=1.0, type=float)
-
-    ##### Dataset #####
-    # parser.add_argument(
-    #     "--dataset_name", required=True, type=str, choices=["scannet", "sunrgbd"]
-    # )
-
-    parser.add_argument(
-        "--dataset_root_dir",
-        type=str,
-        default=None,
-        help="Root directory containing the dataset files. \
-              If None, default values from scannet.py/sunrgbd.py are used",
-    )
-    parser.add_argument(
-        "--meta_data_dir",
-        type=str,
-        default=None,
-        help="Root directory containing the metadata files. \
-              If None, default values from scannet.py/sunrgbd.py are used",
-    )
-    parser.add_argument("--dataset_num_workers", default=4, type=int)
-    parser.add_argument("--batchsize_per_gpu", default=8, type=int)
-
-    ##### Training #####
-    parser.add_argument("--start_epoch", default=1, type=int)
-    parser.add_argument("--max_epoch", default=720, type=int)
-    parser.add_argument("--eval_every_epoch", default=10, type=int)
-    parser.add_argument("--seed", default=0, type=int)
-
-    ##### Testing #####
-    parser.add_argument("--test_only", default=False, action="store_true")
-    parser.add_argument("--test_ckpt", default=None, type=str)
-
-    ##### I/O #####
-    parser.add_argument("--checkpoint_dir", default=None, type=str)
-    parser.add_argument("--log_every", default=10, type=int)
-    parser.add_argument("--log_metrics_every", default=20, type=int)
-    parser.add_argument("--save_separate_checkpoint_every_epoch", default=100, type=int)
-
-    ##### Distributed Training #####
-    parser.add_argument("--ngpus", default=1, type=int)
-    parser.add_argument("--dist_url", default="tcp://localhost:12345", type=str)
-
-    return parser
-
-
-
-
-
-
-import multiprocessing
-import torch
-from torch.utils.data import Dataset, DataLoader
-from nuscenes.nuscenes import NuScenes
-from nuscenes.utils.data_classes import LidarPointCloud
-import numpy as np
-import logging
-
-# Define your device
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
+# ----------------------
+# 5. Training Loop
+# ----------------------
+# Configuration
+# ----------------------
+# 5. Training Loop (FIXED)
+# ----------------------
 # Configuration
 CLASS_MAP = {
     'human.pedestrian.adult': 0,
@@ -1708,114 +1393,48 @@ CLASS_MAP = {
     'vehicle.construction': 6
 }
 
-# Initialize model, optimizer, and criterion
-parser = make_args_parser()
-args = parser.parse_args()
+# Initialize
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 hidden_dim = 256
 model = Enhanced3DETR(num_classes=len(CLASS_MAP), hidden_dim=hidden_dim).to(device)
-num_classes = len(CLASS_MAP)
-criterion = build_criterion(args, num_semcls=num_classes, num_angle_bin=12).to(device)
-model_no_ddp = model
-optimizer = build_optimizer(args, model_no_ddp)
+optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
+
+# 🔥 Use the correct loss function
+criterion = detection_loss  # Now using the proper detection loss
 
 # Dataset setup
 nusc = NuScenes(version='v1.0-mini', dataroot='/home/farshad/Desktop/AI/OpenPCDet/data/nuscenes/v1.0-mini', verbose=False)
 
-class DatasetConfig:
-    def __init__(self):
-        self.class2type = {
-            0: 'human.pedestrian.adult',
-            1: 'vehicle.car',
-            2: 'vehicle.truck',
-            3: 'vehicle.motorcycle',
-            4: 'vehicle.bicycle',
-            5: 'movable_object.barrier',
-            6: 'vehicle.construction'
-        }
-        self.num_classes = len(self.class2type)
 
-dataset_config = DatasetConfig()
-
-# Dataset class
-class NuScenesDataset(Dataset):
-    def __init__(self, nusc, CLASS_MAP):
-        self.nusc = nusc
-        self.CLASS_MAP = CLASS_MAP
-        self.samples = nusc.sample
-
-    def __len__(self):
-        return len(self.samples)
-
-    def __getitem__(self, idx):
-        sample_token = self.samples[idx]['token']
-        lidar = load_lidar_data(self.nusc, sample_token)
-        gt = prepare_ground_truth(self.nusc, sample_token, self.CLASS_MAP)
+# Training
+for epoch in range(500):
+    for i, sample in enumerate(nusc.sample):
+        sample_token = sample['token']
         
-        # Move all tensors to the correct device
-        lidar = lidar.to(device)
-        gt = {
-            'labels': gt['labels'].to(device),
-            'centers': gt['centers'].to(device),
-            'sizes': gt['sizes'].to(device),
-            'angle_bins': gt['angle_bins'].to(device),
-            'angle_res': gt['angle_res'].to(device),
-            'point_cloud_dims_min': gt['point_cloud_dims_min'].to(device),
-            'point_cloud_dims_max': gt['point_cloud_dims_max'].to(device),
-            'gt_box_present': gt['gt_box_present'].to(device),
-            'gt_box_corners': gt['gt_box_corners'].to(device),
-            'gt_box_centers_normalized': gt['gt_box_centers_normalized'].to(device),
-            'gt_box_sizes_normalized': gt['gt_box_sizes_normalized'].to(device),
-            'gt_angle_class_label': gt['gt_angle_class_label'].to(device),
-            'gt_angle_residual_label': gt['gt_angle_residual_label'].to(device),
-            'gt_box_angles': gt['gt_box_angles'].to(device),
-            'gt_box_sem_cls_label': gt['gt_box_sem_cls_label'].to(device),
+        # Load data
+        lidar = load_lidar_data(nusc, sample_token).to(device)
+        
+        # Get ground truth (already contains tensors)
+        gt = prepare_ground_truth(nusc, sample_token, CLASS_MAP)
+        
+        # Move tensors to device
+        gt_tensors = {
+            'labels': [t.to(device) for t in gt['labels']],
+            'centers': [t.to(device) for t in gt['centers']],
+            'sizes': [t.to(device) for t in gt['sizes']],
+            'angle_bins': [t.to(device) for t in gt['angle_bins']],
+            'angle_res': [t.to(device) for t in gt['angle_res']]
         }
         
-        return {
-            'point_clouds': lidar.squeeze(0),  # Remove batch dimension
-            **gt  # Unpack all ground truth tensors
-        }
-
-
-import wandb
-class Logger:
-    def __init__(self):
-        wandb.init(project="my-project")  # Initialize WandB
-
-    def log_scalars(self, scalars, step, prefix=""):
-        wandb.log({f"{prefix}{key}": value for key, value in scalars.items()}, step=step)
-
-# Main execution block
-if __name__ == '__main__':
-    # Set the multiprocessing start method to 'spawn'
-    multiprocessing.set_start_method('spawn')
-
-    # Optional: Call freeze_support() if running on Windows or freezing to an executable
-    multiprocessing.freeze_support()
-
-    # Create dataset and dataloader
-    nusc_dataset = NuScenesDataset(nusc, CLASS_MAP)
-    train_dataloader = DataLoader(nusc_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)
-
-    # # Set up logging
-    # logging.basicConfig(level=logging.INFO)
-    # logger = logging.getLogger("train")
-
-    logger = Logger()  # Use the custom Logger class
-
-    # Training loop
-    for epoch in range(args.start_epoch, args.max_epoch):
-        print(f"Epoch {epoch + 1}/{args.max_epoch}")
-        print(f"Model device: {next(model.parameters()).device}")
-
-        aps = train_one_epoch(
-            args,
-            epoch,
-            model,
-            optimizer,
-            criterion,
-            dataset_config,
-            train_dataloader,
-            logger,
-        )
-        print(f"Epoch {epoch + 1} completed. APs: {aps}")
+        #### Forward + loss
+        outputs = model(lidar)
+        # loss = detection_loss(outputs, gt_tensors)
+        
+        # # Backward pass
+        # optimizer.zero_grad()
+        # loss.backward()
+        # optimizer.step()
+        
+        # print(f'Epoch {epoch+1} Sample {i+1}/{len(nusc.sample)} Loss: {loss.item():.4f}')
+    torch.save(model.state_dict(), f'3detr_epoch_{epoch}.pth')
+torch.save(model.state_dict(), '3detr_final.pth')
